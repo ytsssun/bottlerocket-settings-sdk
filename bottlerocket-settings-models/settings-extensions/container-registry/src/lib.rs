@@ -26,6 +26,23 @@ struct RegistryCredentialV1 {
 }
 
 #[model(impl_default = true)]
+struct RegistryHostV1 {
+    url: Url,
+    capabilities: Vec<SingleLineString>,
+    ca: SingleLineString,
+    client: Vec<SingleLineString>,
+    skip_verify: bool,
+    override_path: bool,
+}
+
+#[model(impl_default = true)]
+struct RegistryHostConfigV1 {
+    registry: SingleLineString,
+    server: Url,
+    host: Vec<RegistryHostV1>,
+}
+
+#[model(impl_default = true)]
 struct RegistrySettingsV1 {
     #[serde(
         default,
@@ -35,6 +52,8 @@ struct RegistrySettingsV1 {
     mirrors: Vec<RegistryMirrorV1>,
     #[serde(alias = "creds", default, skip_serializing_if = "Option::is_none")]
     credentials: Vec<RegistryCredentialV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hosts: Vec<RegistryHostConfigV1>,
 }
 
 type Result<T> = std::result::Result<T, Infallible>;
