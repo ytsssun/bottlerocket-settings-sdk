@@ -19,6 +19,8 @@ pub struct ContainerRuntimeSettingsV1 {
     enable_unprivileged_ports: bool,
     enable_unprivileged_icmp: bool,
     snapshotter: Snapshotter,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    registry_config_mode: Option<RegistryConfigMode>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -27,6 +29,14 @@ enum Snapshotter {
     #[default]
     Overlayfs,
     Soci,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum RegistryConfigMode {
+    #[default]
+    Legacy,
+    HostsToml,
 }
 
 type Result<T> = std::result::Result<T, Infallible>;

@@ -38,6 +38,7 @@ where
                 vec.push(RegistryMirrorV1 {
                     registry: Some(k),
                     endpoint: Some(v),
+                    dial_timeout: None,
                 });
             }
             Ok(Some(vec))

@@ -13,6 +13,8 @@ use std::convert::Infallible;
 struct RegistryMirrorV1 {
     registry: SingleLineString,
     endpoint: Vec<Url>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dial_timeout: Option<SingleLineString>,
 }
 
 #[model(impl_default = true)]
