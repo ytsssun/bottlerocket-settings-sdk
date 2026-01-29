@@ -7,6 +7,7 @@ use crate::de::deserialize_mirrors;
 use bottlerocket_model_derive::model;
 use bottlerocket_modeled_types::{SingleLineString, Url, ValidBase64};
 use bottlerocket_settings_sdk::{GenerateResult, SettingsModel};
+use std::collections::HashMap;
 use std::convert::Infallible;
 
 #[model(impl_default = true)]
@@ -15,6 +16,10 @@ struct RegistryMirrorV1 {
     endpoint: Vec<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dial_timeout: Option<SingleLineString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<SingleLineString>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    headers: Option<HashMap<SingleLineString, SingleLineString>>,
 }
 
 #[model(impl_default = true)]

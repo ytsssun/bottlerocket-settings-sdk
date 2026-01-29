@@ -39,6 +39,8 @@ where
                     registry: Some(k),
                     endpoint: Some(v),
                     dial_timeout: None,
+                    capabilities: None,
+                    headers: None,
                 });
             }
             Ok(Some(vec))
