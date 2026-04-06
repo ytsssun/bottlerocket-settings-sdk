@@ -13,13 +13,84 @@ use bottlerocket_modeled_types::{
     ValidLinuxHostname,
 };
 use bottlerocket_settings_sdk::{GenerateResult, SettingsModel};
+use bottlerocket_string_impls_for::string_impls_for;
 
+use base64::Engine;
 use self::de::deserialize_node_taints;
 use std::collections::HashMap;
-use std::convert::Infallible;
+use std::fmt;
 use std::net::IpAddr;
 
 mod de;
+
+/// Blocked KubeletConfiguration top-level keys and the reason they are blocked.
+/// Each entry is `(kubelet_field_name, reason)` where reason is either the corresponding
+/// Bottlerocket typed setting or a note that the field is Bottlerocket-managed.
+const BLOCKED_KEYS: &[(&str, &str)] = &[
+    ("clusterDomain", "settings.kubernetes.cluster-domain"),
+    ("clusterDNS", "settings.kubernetes.cluster-dns-ip"),
+    ("maxPods", "settings.kubernetes.max-pods"),
+    ("staticPodPath", "settings.kubernetes.static-pods"),
+    ("podPidsLimit", "settings.kubernetes.pod-pids-limit"),
+    ("kubeReserved", "settings.kubernetes.kube-reserved"),
+    ("systemReserved", "settings.kubernetes.system-reserved"),
+    ("evictionHard", "settings.kubernetes.eviction-hard"),
+    ("evictionSoft", "settings.kubernetes.eviction-soft"),
+    ("evictionSoftGracePeriod", "settings.kubernetes.eviction-soft-grace-period"),
+    ("evictionMaxPodGracePeriod", "settings.kubernetes.eviction-max-pod-grace-period"),
+    ("imageGCHighThresholdPercent", "settings.kubernetes.image-gc-high-threshold-percent"),
+    ("imageGCLowThresholdPercent", "settings.kubernetes.image-gc-low-threshold-percent"),
+    ("cpuManagerPolicy", "settings.kubernetes.cpu-manager-policy"),
+    ("cpuManagerReconcilePeriod", "settings.kubernetes.cpu-manager-reconcile-period"),
+    ("topologyManagerPolicy", "settings.kubernetes.topology-manager-policy"),
+    ("topologyManagerScope", "settings.kubernetes.topology-manager-scope"),
+    ("cpuCFSQuota", "settings.kubernetes.cpu-cfs-quota-enforced"),
+    ("allowedUnsafeSysctls", "settings.kubernetes.allowed-unsafe-sysctls"),
+    ("authentication", "Bottlerocket-managed, not user-configurable"),
+    ("authorization", "Bottlerocket-managed, not user-configurable"),
+    ("tlsCertFile", "Bottlerocket-managed"),
+    ("tlsPrivateKeyFile", "Bottlerocket-managed"),
+    ("containerRuntimeEndpoint", "Bottlerocket-managed"),
+    ("imageServiceEndpoint", "Bottlerocket-managed"),
+    ("podInfraContainerImage", "Bottlerocket-managed"),
+    ("resolvConf", "Bottlerocket-managed"),
+    ("registerNode", "Bottlerocket-managed"),
+];
+
+/// A validated kubelet extra config value. Stores the original base64 string.
+/// Validates at construction time that the value is valid base64, decodes to valid YAML,
+/// is a YAML mapping, and contains no blocked KubeletConfiguration keys.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct ValidKubeletExtraConfig {
+    inner: String,
+}
+
+impl TryFrom<&str> for ValidKubeletExtraConfig {
+    type Error = String;
+
+    fn try_from(input: &str) -> std::result::Result<Self, Self::Error> {
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(input)
+            .map_err(|e| format!("Failed to decode kubelet-extra-config: {e}"))?;
+        let yaml_value: serde_yaml::Value = serde_yaml::from_slice(&decoded)
+            .map_err(|e| format!("Failed to parse kubelet-extra-config YAML: {e}"))?;
+        let mapping = yaml_value
+            .as_mapping()
+            .ok_or("kubelet-extra-config must be a YAML mapping, not an array or scalar")?;
+        for (key, reason) in BLOCKED_KEYS {
+            if mapping.contains_key(&serde_yaml::Value::String((*key).to_string())) {
+                return Err(format!(
+                    "kubelet-extra-config contains blocked key '{key}': {reason}"
+                ));
+            }
+        }
+        Ok(Self {
+            inner: input.to_string(),
+        })
+    }
+}
+
+string_impls_for!(ValidKubeletExtraConfig, "ValidKubeletExtraConfig");
 
 // Kubernetes static pod manifest settings
 #[model]
@@ -102,20 +173,54 @@ pub struct KubernetesSettingsV1 {
     hostname_override: ValidLinuxHostname,
     ids_per_pod: KubernetesIdsPerPodValue,
     max_parallel_image_pulls: i32,
+    kubelet_extra_config: ValidKubeletExtraConfig,
 }
 
-type Result<T> = std::result::Result<T, Infallible>;
+/// Errors that can occur when validating Kubernetes settings.
+#[derive(Debug)]
+pub enum KubernetesSettingsError {
+    /// The kubelet-extra-config value could not be decoded from base64.
+    Base64Decode(String),
+    /// The decoded kubelet-extra-config is not valid YAML.
+    YamlParse(String),
+    /// The decoded kubelet-extra-config is not a YAML mapping.
+    NotAMapping,
+    /// The kubelet-extra-config contains a key that is managed by a typed Bottlerocket setting.
+    BlockedKey { key: String, reason: String },
+}
+
+impl fmt::Display for KubernetesSettingsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Base64Decode(e) => write!(f, "Failed to decode kubelet-extra-config: {}", e),
+            Self::YamlParse(e) => write!(f, "Failed to parse kubelet-extra-config YAML: {}", e),
+            Self::NotAMapping => write!(
+                f,
+                "kubelet-extra-config must be a YAML mapping, not an array or scalar"
+            ),
+            Self::BlockedKey { key, reason } => write!(
+                f,
+                "kubelet-extra-config contains blocked key '{}': {}",
+                key, reason
+            ),
+        }
+    }
+}
+
+impl std::error::Error for KubernetesSettingsError {}
+
+type Result<T> = std::result::Result<T, KubernetesSettingsError>;
 
 impl SettingsModel for KubernetesSettingsV1 {
     type PartialKind = Self;
-    type ErrorKind = Infallible;
+    type ErrorKind = KubernetesSettingsError;
 
     fn get_version() -> &'static str {
         "v1"
     }
 
     fn set(_current_value: Option<Self>, _target: Self) -> Result<()> {
-        // allow anything that parses as MetricsSettingsV1
+        // allow anything that parses as KubernetesSettingsV1
         Ok(())
     }
 
@@ -130,6 +235,7 @@ impl SettingsModel for KubernetesSettingsV1 {
     }
 
     fn validate(_value: Self, _validated_settings: Option<serde_json::Value>) -> Result<()> {
+        // Validation is performed at deserialization time by ValidKubeletExtraConfig.
         Ok(())
     }
 }
@@ -137,6 +243,7 @@ impl SettingsModel for KubernetesSettingsV1 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use base64::Engine;
     use bottlerocket_modeled_types::KubernetesHostnameOverrideSource;
 
     #[test]
@@ -210,6 +317,7 @@ mod test {
                 static_pods_enabled: None,
                 ids_per_pod: None,
                 max_parallel_image_pulls: None,
+                kubelet_extra_config: None,
             })
         );
     }
@@ -233,5 +341,86 @@ mod test {
                 ..Default::default()
             }
         );
+    }
+
+    #[test]
+    fn test_valid_extra_config_passes_validation() {
+        let yaml = "featureGates:\n  SomeGate: true\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        assert!(ValidKubeletExtraConfig::try_from(encoded.as_str()).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_base64_rejected_at_type_boundary() {
+        assert!(ValidKubeletExtraConfig::try_from("not valid base64!!!").is_err());
+    }
+
+    #[test]
+    fn test_invalid_yaml_after_base64_decode_rejected() {
+        let bad_yaml = ":\n  :\n- {{\ninvalid:: yaml::: [";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bad_yaml);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("parse"), "Expected YAML parse error, got: {err}");
+    }
+
+    #[test]
+    fn test_binary_garbage_rejected_as_yaml_parse_error() {
+        let garbage: [u8; 16] = [0xff, 0xfe, 0x00, 0x01, 0x80, 0x90, 0xa0, 0xb0,
+                                  0xc0, 0xd0, 0xe0, 0xf0, 0x7f, 0x1b, 0x03, 0x04];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(garbage);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("parse") || err.contains("YAML"), "Expected YAML parse error, got: {err}");
+    }
+
+    #[test]
+    fn test_yaml_array_rejected_as_not_a_mapping() {
+        let yaml = "- item1\n- item2\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("mapping"), "Expected not-a-mapping error, got: {err}");
+    }
+
+    #[test]
+    fn test_yaml_scalar_rejected_as_not_a_mapping() {
+        let yaml = "just a string";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("mapping"), "Expected not-a-mapping error, got: {err}");
+    }
+
+    #[test]
+    fn test_blocked_key_cluster_domain_rejected() {
+        let yaml = "clusterDomain: example.com\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("clusterDomain"), "Error should name the blocked key: {err}");
+        assert!(
+            err.contains("settings.kubernetes.cluster-domain"),
+            "Error should name the typed setting: {err}"
+        );
+    }
+
+    #[test]
+    fn test_blocked_key_authentication_rejected() {
+        let yaml = "authentication:\n  mode: AlwaysAllow\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        let err = ValidKubeletExtraConfig::try_from(encoded.as_str()).unwrap_err();
+        assert!(err.contains("authentication"), "Error should name the blocked key: {err}");
+        assert!(
+            err.contains("Bottlerocket-managed"),
+            "Error should state the field is Bottlerocket-managed: {err}"
+        );
+    }
+
+    #[test]
+    fn test_blocked_key_rejected_at_deserialization() {
+        // Verify that serde deserialization of a JSON payload with a blocked key fails
+        let yaml = "clusterDomain: example.com\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(yaml);
+        let json = format!(r#"{{"kubelet-extra-config": "{}"}}"#, encoded);
+        let result: std::result::Result<KubernetesSettingsV1, _> = serde_json::from_str(&json);
+        assert!(result.is_err(), "Deserialization should fail for blocked key");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("clusterDomain"), "Error should name the blocked key: {err}");
     }
 }

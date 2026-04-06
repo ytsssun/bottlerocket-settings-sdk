@@ -9,7 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - See [unreleased changes here]
 
-[unreleased changes here]: https://github.com/bottlerocket-os/bottlerocket-settings-sdk/compare/bottlerocket-settings-models-v0.22.0...HEAD
+[unreleased changes here]: https://github.com/bottlerocket-os/bottlerocket-settings-sdk/compare/bottlerocket-settings-models-v0.23.0...HEAD
+
+## [0.23.0] - 2026-04-06
+
+### Changed
+
+- Reverted `toml` dependency from 1.1 back to 0.8
+- Reverted `snafu` dependency from 0.9 back to 0.8
+
+[0.23.0]: https://github.com/bottlerocket-os/bottlerocket-settings-sdk/compare/bottlerocket-settings-models-v0.22.0...bottlerocket-settings-models-v0.23.0
 
 ## [0.22.0] - 2026-04-02
 
