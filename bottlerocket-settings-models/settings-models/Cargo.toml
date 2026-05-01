@@ -17,6 +17,7 @@ bottlerocket-modeled-types.workspace = true
 bottlerocket-scalar.workspace = true
 bottlerocket-scalar-derive.workspace = true
 bottlerocket-string-impls-for.workspace = true
+indexmap.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true

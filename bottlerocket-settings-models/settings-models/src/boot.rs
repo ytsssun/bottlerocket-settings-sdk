@@ -1,7 +1,7 @@
 //! Boot config settings structures.
 use bottlerocket_model_derive::model;
 use bottlerocket_modeled_types::{BootConfigKey, BootConfigValue};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 // Kernel boot settings
 #[model(impl_default = true)]
@@ -13,12 +13,12 @@ pub struct BootSettingsV1 {
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    kernel_parameters: HashMap<BootConfigKey, Vec<BootConfigValue>>,
+    kernel_parameters: IndexMap<BootConfigKey, Vec<BootConfigValue>>,
     #[serde(
         alias = "init",
         rename(serialize = "init"),
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    init_parameters: HashMap<BootConfigKey, Vec<BootConfigValue>>,
+    init_parameters: IndexMap<BootConfigKey, Vec<BootConfigValue>>,
 }
